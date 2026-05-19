@@ -1,5 +1,5 @@
-from typing import List
-from pydantic import BaseModel
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
 
 class CharacterInput(BaseModel):
@@ -13,8 +13,21 @@ class CharacterInput(BaseModel):
     language: str = "English"
 
 
+class PromptConfig(BaseModel):
+    persona_prompt: str = ""
+    intro_prompt: str = ""
+
+
+class ModelConfig(BaseModel):
+    base_url: str = ""
+    model: str = ""
+    api_key: str = ""
+
+
 class GenerateRequest(BaseModel):
     characters: List[CharacterInput]
+    prompt_config: Optional[PromptConfig] = None
+    llm_config: Optional[ModelConfig] = Field(default=None, alias="model_config")
 
 
 class CharacterResult(BaseModel):

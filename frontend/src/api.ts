@@ -26,10 +26,31 @@ export interface CharacterResult {
   error: string;
 }
 
+export interface PromptConfig {
+  persona_prompt: string;
+  intro_prompt: string;
+}
+
+export interface ModelConfig {
+  base_url: string;
+  model: string;
+  api_key: string;
+}
+
+export interface ModelTestResult {
+  ok: boolean;
+  request_url: string;
+  model: string;
+  message?: string;
+  error?: string;
+}
+
 const BASE_URL = "";
 
 export async function generateCharacters(
   characters: CharacterInput[],
+  promptConfig: PromptConfig,
+  modelConfig: ModelConfig,
   onProgress: (index: number, total: number, result: CharacterResult) => void
 ): Promise<void> {
   const payload = characters.map(({ name, gender, age, role_type, personality, occupation, scenario, language }) => ({
@@ -39,7 +60,11 @@ export async function generateCharacters(
   const resp = await fetch(`${BASE_URL}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ characters: payload }),
+    body: JSON.stringify({
+      characters: payload,
+      prompt_config: promptConfig,
+      model_config: modelConfig,
+    }),
   });
 
   const reader = resp.body!.getReader();
@@ -58,6 +83,25 @@ export async function generateCharacters(
       onProgress(event.index, event.total, event.result);
     }
   }
+}
+
+export async function getDefaultPrompts(): Promise<PromptConfig> {
+  const resp = await fetch(`${BASE_URL}/api/prompts/defaults`);
+  return resp.json();
+}
+
+export async function getDefaultModelConfig(): Promise<ModelConfig> {
+  const resp = await fetch(`${BASE_URL}/api/model/defaults`);
+  return resp.json();
+}
+
+export async function testModelConfig(modelConfig: ModelConfig): Promise<ModelTestResult> {
+  const resp = await fetch(`${BASE_URL}/api/model/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(modelConfig),
+  });
+  return resp.json();
 }
 
 export async function uploadFile(file: File): Promise<CharacterInput[]> {

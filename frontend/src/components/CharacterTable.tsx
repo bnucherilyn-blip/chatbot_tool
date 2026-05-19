@@ -1,6 +1,7 @@
+import type { DragEvent } from "react";
 import { useState } from "react";
-import { Table, Input, Button, Space, Upload, message } from "antd";
-import { PlusOutlined, DeleteOutlined, UploadOutlined } from "@ant-design/icons";
+import { Table, Input, Button, Space, message, Modal } from "antd";
+import { PlusOutlined, DeleteOutlined, InboxOutlined } from "@ant-design/icons";
 import type { CharacterInput } from "../api";
 import { uploadFile } from "../api";
 
@@ -21,6 +22,9 @@ const COLUMNS_CONFIG = [
 ];
 
 export default function CharacterTable({ data, onChange }: Props) {
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
+
   const handleCellChange = (key: string, field: string, value: string) => {
     onChange(data.map((row) => (row.key === key ? { ...row, [field]: value } : row)));
   };
@@ -53,6 +57,71 @@ export default function CharacterTable({ data, onChange }: Props) {
       message.error("文件解析失败");
     }
     return false;
+  };
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files?.[0];
+    if (!file) return;
+    await handleUpload(file);
+  };
+
+  const importCsvText = () => {
+    const lines = csvText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length < 2) {
+      message.error("请粘贴包含表头和至少一行数据的 CSV");
+      return;
+    }
+
+    const headers = lines[0].split(",").map((item) => item.trim().toLowerCase());
+    const fieldMap: Record<string, keyof CharacterInput> = {
+      姓名: "name",
+      name: "name",
+      性别: "gender",
+      gender: "gender",
+      年龄: "age",
+      age: "age",
+      角色类型: "role_type",
+      role_type: "role_type",
+      核心画像: "personality",
+      性格画像: "personality",
+      personality: "personality",
+      职业: "occupation",
+      occupation: "occupation",
+      初始场景: "scenario",
+      场景: "scenario",
+      scenario: "scenario",
+      语言: "language",
+      language: "language",
+    };
+
+    const imported = lines.slice(1).map((line, index) => {
+      const values = line.split(",").map((item) => item.trim());
+      const row: CharacterInput = {
+        key: String(Date.now() + index),
+        name: "",
+        gender: "",
+        age: "",
+        role_type: "",
+        personality: "",
+        occupation: "",
+        scenario: "",
+        language: "English",
+      };
+      headers.forEach((header, columnIndex) => {
+        const field = fieldMap[header];
+        if (field) row[field] = values[columnIndex] || "";
+      });
+      return row;
+    });
+
+    onChange(imported);
+    setPasteModalOpen(false);
+    setCsvText("");
+    message.success(`已导入 ${imported.length} 条数据`);
   };
 
   const columns = [
@@ -89,10 +158,16 @@ export default function CharacterTable({ data, onChange }: Props) {
         <Button icon={<PlusOutlined />} onClick={addRow}>
           添加行
         </Button>
-        <Upload accept=".csv,.xlsx,.xls" showUploadList={false} beforeUpload={handleUpload}>
-          <Button icon={<UploadOutlined />}>上传 CSV/Excel</Button>
-        </Upload>
+        <Button onClick={() => setPasteModalOpen(true)}>粘贴 CSV 导入</Button>
       </Space>
+      <div
+        className="drop-zone"
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={handleDrop}
+      >
+        <InboxOutlined />
+        <span>也可以把 CSV / Excel 文件拖到这里导入</span>
+      </div>
       <Table
         columns={columns}
         dataSource={data}
@@ -101,6 +176,21 @@ export default function CharacterTable({ data, onChange }: Props) {
         size="small"
         scroll={{ x: 900 }}
       />
+      <Modal
+        title="粘贴 CSV 导入"
+        open={pasteModalOpen}
+        onCancel={() => setPasteModalOpen(false)}
+        onOk={importCsvText}
+        okText="导入"
+        cancelText="取消"
+      >
+        <Input.TextArea
+          value={csvText}
+          onChange={(event) => setCsvText(event.target.value)}
+          autoSize={{ minRows: 8, maxRows: 16 }}
+          placeholder={"姓名,核心画像,语言\nAlice,quiet designer,English"}
+        />
+      </Modal>
     </div>
   );
 }

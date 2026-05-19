@@ -23,10 +23,31 @@ export default function ResultView({ results }: Props) {
       title: "状态",
       dataIndex: "status",
       width: 80,
-      render: (s: string) => {
-        const color = s === "done" ? "green" : s === "error" ? "red" : "blue";
+      render: (s: string, record: CharacterResult) => {
+        const color = s === "done" ? "green" : s.includes("error") ? "red" : "blue";
+        if (s.includes("error") && record.error) {
+          return (
+            <Tag color={color} onClick={() => showDetail(`${record.name} - 错误详情`, record.error)}>
+              {s}
+            </Tag>
+          );
+        }
         return <Tag color={color}>{s}</Tag>;
       },
+    },
+    {
+      title: "错误详情",
+      dataIndex: "error",
+      ellipsis: true,
+      render: (text: string, record: CharacterResult) =>
+        text ? (
+          <a onClick={() => showDetail(`${record.name} - 错误详情`, text)}>
+            {text.slice(0, 80)}
+            {text.length > 80 ? "..." : ""}
+          </a>
+        ) : (
+          "-"
+        ),
     },
     {
       title: "人设 Prompt",
@@ -34,7 +55,7 @@ export default function ResultView({ results }: Props) {
       ellipsis: true,
       render: (text: string, record: CharacterResult) => (
         <a onClick={() => showDetail(`${record.name} - 人设`, text)}>
-          {text ? text.slice(0, 60) + "..." : "-"}
+          {text ? text.slice(0, 60) + "..." : record.error ? "查看错误" : "-"}
         </a>
       ),
     },

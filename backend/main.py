@@ -2,7 +2,7 @@ import asyncio
 import io
 import json
 from pathlib import Path
-from typing import AsyncGenerator, List
+from typing import AsyncGenerator, List, Optional
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File
@@ -10,8 +10,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from schemas import CharacterInput, GenerateRequest, CharacterResult
-from llm import generate_persona, generate_intro
+from schemas import CharacterInput, GenerateRequest, CharacterResult, ModelConfig, PromptConfig
+from llm import (
+    INTRO_PROMPT,
+    PERSONA_PROMPT,
+    generate_intro,
+    generate_persona,
+    get_default_model_config,
+    get_key_fingerprint,
+    get_resolved_request_info,
+)
 
 app = FastAPI(title="角色人设批量生成工具")
 
@@ -23,7 +31,21 @@ app.add_middleware(
 )
 
 
-async def process_character(char: CharacterInput) -> CharacterResult:
+@app.get("/api/health")
+async def health():
+    return {"ok": True, "service": "chatbot_tool"}
+
+
+async def process_character(
+    char: CharacterInput,
+    prompt_config: Optional[PromptConfig] = None,
+    model_config: Optional[ModelConfig] = None,
+) -> CharacterResult:
+    persona_system_prompt = (prompt_config.persona_prompt.strip() if prompt_config else "") or None
+    intro_system_prompt = (prompt_config.intro_prompt.strip() if prompt_config else "") or None
+    base_url = (model_config.base_url.strip() if model_config else "") or None
+    model = (model_config.model.strip() if model_config else "") or None
+    api_key = (model_config.api_key.strip() if model_config else "") or None
     result = CharacterResult(
         name=char.name,
         gender=char.gender,
@@ -44,13 +66,28 @@ async def process_character(char: CharacterInput) -> CharacterResult:
             occupation=char.occupation,
             scenario=char.scenario,
             language=char.language,
+            system_prompt=persona_system_prompt,
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
         )
         result.persona_prompt = persona
         result.status = "persona_done"
 
-        intro_data = await generate_intro(persona, char.language)
+        intro_data = await generate_intro(
+            persona,
+            char.language,
+            system_prompt=intro_system_prompt,
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+        )
         result.introduction = intro_data.get("introduction", "")
         result.prologue = intro_data.get("prologue", "")
+        if not result.introduction and not result.prologue:
+            result.status = "intro_error"
+            result.error = f"简介/开场白为空，模型原始输出：{intro_data.get('raw', '')}"
+            return result
         result.status = "done"
     except Exception as e:
         result.status = "error"
@@ -63,11 +100,61 @@ async def generate(req: GenerateRequest):
     async def event_stream() -> AsyncGenerator[str, None]:
         total = len(req.characters)
         for i, char in enumerate(req.characters):
-            result = await process_character(char)
+            result = await process_character(char, req.prompt_config, req.llm_config)
             event = {"index": i, "total": total, "result": result.model_dump()}
             yield json.dumps(event, ensure_ascii=False) + "\n"
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+
+
+@app.get("/api/prompts/defaults")
+async def get_default_prompts():
+    return {
+        "persona_prompt": PERSONA_PROMPT,
+        "intro_prompt": INTRO_PROMPT,
+    }
+
+
+@app.get("/api/model/defaults")
+async def get_default_model():
+    return get_default_model_config()
+
+
+@app.post("/api/model/test")
+async def test_model(config: ModelConfig):
+    base_url = config.base_url.strip() or None
+    model = config.model.strip() or None
+    api_key = config.api_key.strip() or None
+    info = get_resolved_request_info(base_url, model)
+    key_info = get_key_fingerprint(api_key)
+    try:
+        text = await generate_persona(
+            name="ConnectionTest",
+            gender="",
+            age="",
+            role_type="",
+            personality="brief and practical",
+            occupation="",
+            scenario="",
+            language="English",
+            system_prompt="Reply with exactly: ok",
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+        )
+        return {
+            "ok": True,
+            **info,
+            **key_info,
+            "message": text,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            **info,
+            **key_info,
+            "error": str(e),
+        }
 
 
 COLUMN_MAP = {
@@ -147,4 +234,3 @@ if STATIC_DIR.exists():
         if file_path.is_file():
             return FileResponse(file_path)
         return FileResponse(STATIC_DIR / "index.html")
-
