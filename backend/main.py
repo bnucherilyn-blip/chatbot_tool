@@ -1,14 +1,15 @@
 import asyncio
+import csv
 import io
 import json
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
-import pandas as pd
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
+from openpyxl import Workbook, load_workbook
 
 from schemas import CharacterInput, GenerateRequest, CharacterResult, ModelConfig, PromptConfig
 from llm import (
@@ -172,49 +173,78 @@ COLUMN_MAP = {
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     content = await file.read()
-    if file.filename.endswith(".csv"):
-        df = pd.read_csv(io.BytesIO(content))
+    filename = (file.filename or "").lower()
+    if filename.endswith(".csv"):
+        text = content.decode("utf-8-sig")
+        rows = list(csv.DictReader(io.StringIO(text)))
     else:
-        df = pd.read_excel(io.BytesIO(content))
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        worksheet = workbook.active
+        iterator = worksheet.iter_rows(values_only=True)
+        headers = next(iterator, [])
+        rows = []
+        for values in iterator:
+            rows.append({
+                str(header or ""): value
+                for header, value in zip(headers, values)
+            })
 
-    df.columns = [COLUMN_MAP.get(c.strip().lower(), c.strip().lower()) for c in df.columns]
-    records = df.fillna("").to_dict(orient="records")
     characters = []
-    for r in records:
+    for r in rows:
+        normalized = {
+            COLUMN_MAP.get(str(key).strip().lower(), str(key).strip().lower()): value
+            for key, value in r.items()
+        }
         characters.append({
-            "name": str(r.get("name", "")),
-            "gender": str(r.get("gender", "")),
-            "age": str(r.get("age", "")),
-            "role_type": str(r.get("role_type", "")),
-            "personality": str(r.get("personality", "")),
-            "occupation": str(r.get("occupation", "")),
-            "scenario": str(r.get("scenario", "")),
-            "language": str(r.get("language", "English")),
+            "name": "" if normalized.get("name") is None else str(normalized.get("name", "")),
+            "gender": "" if normalized.get("gender") is None else str(normalized.get("gender", "")),
+            "age": "" if normalized.get("age") is None else str(normalized.get("age", "")),
+            "role_type": "" if normalized.get("role_type") is None else str(normalized.get("role_type", "")),
+            "personality": "" if normalized.get("personality") is None else str(normalized.get("personality", "")),
+            "occupation": "" if normalized.get("occupation") is None else str(normalized.get("occupation", "")),
+            "scenario": "" if normalized.get("scenario") is None else str(normalized.get("scenario", "")),
+            "language": "" if normalized.get("language") is None else str(normalized.get("language", "English")),
         })
     return {"characters": characters}
 
 
 @app.post("/api/export")
 async def export_results(results: List[dict]):
-    rows = []
+    headers = [
+        "姓名",
+        "性别",
+        "年龄",
+        "角色类型",
+        "核心画像",
+        "职业",
+        "初始场景",
+        "语言",
+        "人设Prompt",
+        "角色简介",
+        "开场白",
+        "状态",
+    ]
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "results"
+    worksheet.append(headers)
     for r in results:
-        rows.append({
-            "姓名": r.get("name", ""),
-            "性别": r.get("gender", ""),
-            "年龄": r.get("age", ""),
-            "角色类型": r.get("role_type", ""),
-            "核心画像": r.get("personality", ""),
-            "职业": r.get("occupation", ""),
-            "初始场景": r.get("scenario", ""),
-            "语言": r.get("language", ""),
-            "人设Prompt": r.get("persona_prompt", ""),
-            "角色简介": r.get("introduction", ""),
-            "开场白": r.get("prologue", ""),
-            "状态": r.get("status", ""),
-        })
-    df = pd.DataFrame(rows)
+        worksheet.append([
+            r.get("name", ""),
+            r.get("gender", ""),
+            r.get("age", ""),
+            r.get("role_type", ""),
+            r.get("personality", ""),
+            r.get("occupation", ""),
+            r.get("scenario", ""),
+            r.get("language", ""),
+            r.get("persona_prompt", ""),
+            r.get("introduction", ""),
+            r.get("prologue", ""),
+            r.get("status", ""),
+        ])
     buf = io.BytesIO()
-    df.to_excel(buf, index=False, engine="openpyxl")
+    workbook.save(buf)
     buf.seek(0)
     return Response(
         content=buf.getvalue(),
