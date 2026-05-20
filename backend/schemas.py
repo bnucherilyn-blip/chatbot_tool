@@ -24,6 +24,11 @@ class ModelConfig(BaseModel):
     api_key: str = ""
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 class GenerateRequest(BaseModel):
     characters: List[CharacterInput]
     prompt_config: Optional[PromptConfig] = None

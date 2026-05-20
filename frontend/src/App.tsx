@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
-import { Button, Progress, Card, Typography, Tabs, Statistic, Space, Empty, Tag, Segmented, Input, Alert, message } from "antd";
+import { Button, Progress, Card, Typography, Tabs, Statistic, Space, Empty, Tag, Segmented, Input, Alert, message, Form } from "antd";
 import {
   AppstoreOutlined,
   ClockCircleOutlined,
   ControlOutlined,
   FileTextOutlined,
+  LoginOutlined,
+  LogoutOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import CharacterTable from "./components/CharacterTable";
 import ResultView from "./components/ResultView";
 import type { CharacterInput, CharacterResult, ModelConfig, ModelTestResult, PromptConfig } from "./api";
-import { generateCharacters, getDefaultModelConfig, getDefaultPrompts, testModelConfig } from "./api";
+import { clearStoredAuthToken, generateCharacters, getDefaultModelConfig, getDefaultPrompts, getStoredAuthToken, login, setStoredAuthToken, testModelConfig } from "./api";
 import "./App.css";
 
 const { Title, Text, Paragraph } = Typography;
@@ -29,6 +31,7 @@ const DEFAULT_ROW: CharacterInput = {
 
 const PROMPT_STORAGE_KEY = "character-studio-prompt-config";
 const MODEL_STORAGE_KEY = "character-studio-model-config";
+const AUTH_USER_STORAGE_KEY = "chatbot-tool-auth-user";
 
 const EMPTY_PROMPT_CONFIG: PromptConfig = {
   persona_prompt: "",
@@ -42,6 +45,9 @@ const EMPTY_MODEL_CONFIG: ModelConfig = {
 };
 
 function App() {
+  const [isAuthed, setIsAuthed] = useState(Boolean(getStoredAuthToken()));
+  const [authUser, setAuthUser] = useState(localStorage.getItem(AUTH_USER_STORAGE_KEY) || "");
+  const [loginLoading, setLoginLoading] = useState(false);
   const [characters, setCharacters] = useState<CharacterInput[]>([DEFAULT_ROW]);
   const [results, setResults] = useState<CharacterResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -55,6 +61,8 @@ function App() {
   const validCount = characters.filter((c) => c.name.trim() && c.personality.trim()).length;
 
   useEffect(() => {
+    if (!isAuthed) return;
+
     const loadSettings = async () => {
       try {
         const defaults = await getDefaultPrompts();
@@ -76,12 +84,12 @@ function App() {
           setModelConfig(modelDefaults);
         }
       } catch {
-        message.error("默认设置加载失败");
+        message.error("默认设置加载失败，请重新登录后再试");
       }
     };
 
     loadSettings();
-  }, []);
+  }, [isAuthed]);
 
   useEffect(() => {
     if (!promptConfig.persona_prompt && !promptConfig.intro_prompt) return;
@@ -113,6 +121,30 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleLogin = async (values: { username: string; password: string }) => {
+    setLoginLoading(true);
+    try {
+      const result = await login(values.username, values.password);
+      setStoredAuthToken(result.token);
+      localStorage.setItem(AUTH_USER_STORAGE_KEY, result.username);
+      setAuthUser(result.username);
+      setIsAuthed(true);
+      message.success("登录成功");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "登录失败");
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    clearStoredAuthToken();
+    localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+    setAuthUser("");
+    setIsAuthed(false);
+    message.success("已退出登录");
   };
 
   const resetPrompts = () => {
@@ -350,6 +382,56 @@ function App() {
     </div>
   );
 
+  if (!isAuthed) {
+    return (
+      <div className="login-shell">
+        <Card className="login-card">
+          <div className="login-brand">
+            <span className="login-mark">ct</span>
+            <div>
+              <Text className="eyebrow">chatbot_tool</Text>
+              <Title level={2}>登录工作台</Title>
+            </div>
+          </div>
+          <Paragraph type="secondary">
+            输入授权账号后继续使用批量生成人设、模型配置和 Prompt 设置。
+          </Paragraph>
+          <Form
+            layout="vertical"
+            onFinish={handleLogin}
+            initialValues={{ username: "xuan.zhang@js.design" }}
+            requiredMark={false}
+          >
+            <Form.Item
+              label="账号"
+              name="username"
+              rules={[{ required: true, message: "请输入账号" }]}
+            >
+              <Input autoComplete="username" placeholder="xuan.zhang@js.design" />
+            </Form.Item>
+            <Form.Item
+              label="密码"
+              name="password"
+              rules={[{ required: true, message: "请输入密码" }]}
+            >
+              <Input.Password autoComplete="current-password" placeholder="请输入密码" />
+            </Form.Item>
+            <Button
+              block
+              type="primary"
+              size="large"
+              htmlType="submit"
+              icon={<LoginOutlined />}
+              loading={loginLoading}
+            >
+              登录
+            </Button>
+          </Form>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -363,6 +445,10 @@ function App() {
         <div className="hero-stats">
           <Statistic title="表格行数" value={characters.length} />
           <Statistic title="有效输入" value={validCount} />
+          <Button icon={<LogoutOutlined />} onClick={handleLogout}>
+            退出登录
+          </Button>
+          {authUser && <Text type="secondary">{authUser}</Text>}
         </div>
       </header>
 

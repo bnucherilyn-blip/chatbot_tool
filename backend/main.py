@@ -1,17 +1,18 @@
 import asyncio
 import csv
+import secrets
 import io
 import json
 from pathlib import Path
 from typing import AsyncGenerator, List, Optional
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openpyxl import Workbook, load_workbook
 
-from schemas import CharacterInput, GenerateRequest, CharacterResult, ModelConfig, PromptConfig
+from schemas import CharacterInput, GenerateRequest, CharacterResult, LoginRequest, ModelConfig, PromptConfig
 from llm import (
     INTRO_PROMPT,
     PERSONA_PROMPT,
@@ -31,10 +32,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+LOGIN_USERNAME = "xuan.zhang@js.design"
+LOGIN_PASSWORD = "123456"
+AUTH_TOKEN = "chatbot_tool_static_login_token"
+
+
+def require_auth(authorization: Optional[str] = Header(default=None)) -> None:
+    expected = f"Bearer {AUTH_TOKEN}"
+    if not secrets.compare_digest(authorization or "", expected):
+        raise HTTPException(status_code=401, detail="未登录或登录已失效")
+
 
 @app.get("/api/health")
 async def health():
     return {"ok": True, "service": "chatbot_tool"}
+
+
+@app.post("/api/login")
+async def login(req: LoginRequest):
+    username = req.username.strip()
+    if username == LOGIN_USERNAME and req.password == LOGIN_PASSWORD:
+        return {
+            "ok": True,
+            "token": AUTH_TOKEN,
+            "username": LOGIN_USERNAME,
+        }
+    raise HTTPException(status_code=401, detail="账号或密码错误")
 
 
 async def process_character(
@@ -97,7 +120,9 @@ async def process_character(
 
 
 @app.post("/api/generate")
-async def generate(req: GenerateRequest):
+async def generate(req: GenerateRequest, authorization: Optional[str] = Header(default=None)):
+    require_auth(authorization)
+
     async def event_stream() -> AsyncGenerator[str, None]:
         total = len(req.characters)
         for i, char in enumerate(req.characters):
@@ -109,7 +134,8 @@ async def generate(req: GenerateRequest):
 
 
 @app.get("/api/prompts/defaults")
-async def get_default_prompts():
+async def get_default_prompts(authorization: Optional[str] = Header(default=None)):
+    require_auth(authorization)
     return {
         "persona_prompt": PERSONA_PROMPT,
         "intro_prompt": INTRO_PROMPT,
@@ -117,12 +143,14 @@ async def get_default_prompts():
 
 
 @app.get("/api/model/defaults")
-async def get_default_model():
+async def get_default_model(authorization: Optional[str] = Header(default=None)):
+    require_auth(authorization)
     return get_default_model_config()
 
 
 @app.post("/api/model/test")
-async def test_model(config: ModelConfig):
+async def test_model(config: ModelConfig, authorization: Optional[str] = Header(default=None)):
+    require_auth(authorization)
     base_url = config.base_url.strip() or None
     model = config.model.strip() or None
     api_key = config.api_key.strip() or None
@@ -171,7 +199,8 @@ COLUMN_MAP = {
 
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), authorization: Optional[str] = Header(default=None)):
+    require_auth(authorization)
     content = await file.read()
     filename = (file.filename or "").lower()
     if filename.endswith(".csv"):
@@ -209,7 +238,8 @@ async def upload_file(file: UploadFile = File(...)):
 
 
 @app.post("/api/export")
-async def export_results(results: List[dict]):
+async def export_results(results: List[dict], authorization: Optional[str] = Header(default=None)):
+    require_auth(authorization)
     headers = [
         "姓名",
         "性别",

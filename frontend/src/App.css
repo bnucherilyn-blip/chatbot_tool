@@ -1,3 +1,47 @@
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 15%, rgba(29, 91, 216, 0.12), transparent 30%),
+    linear-gradient(135deg, #f6f9fd 0%, #edf3fb 48%, #fbfcff 100%);
+}
+
+.login-card {
+  width: min(420px, 100%);
+  border: 1px solid rgba(130, 148, 176, 0.24);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(31, 47, 70, 0.14);
+}
+
+.login-card .ant-card-body {
+  padding: 30px;
+}
+
+.login-brand {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.login-brand h2.ant-typography {
+  margin: 2px 0 0;
+}
+
+.login-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 800;
+  background: #1d5bd8;
+  border-radius: 8px;
+}
+
 .app-shell {
   width: min(1280px, calc(100vw - 32px));
   margin: 0 auto;
